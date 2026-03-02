@@ -14,10 +14,11 @@ const double DELTA = 0.0001;
 
 
 int main(int argc, char* argv[]) {
-	if ((argc < 3) || (argc > 4)) {
+	if (((argc < 3) || (argc > 5)) || (argc == 2 && (argv[1] == "help" || argv[1] == "-help"))) {
 		cout << "Wrong format. Use \"./cci.exe \"path to file or filename if file is in current folder\" "
 			<< "\"start position of interpolation (line number or float, or curve pos from DisplayCal's curve viewer)\" "
-			<< "\"(optional(if nothing, assusmes \"1.0\" or \"1037\n)) after end position of interpolation (line number or float)\"" << endl;
+			<< "\"(optional(if nothing, assusmes \"1.0\" or \"1037\n)) after end position of interpolation (line number or float)\""
+			<< "\"(optional (if nothing, assusmes default)) change operation mode: 0 - default, interpolate between start and 1.0; 1 - continue current trajectory and curve to 1.0 near end\"" << endl;
 		return 0;
 	}
 
@@ -39,6 +40,15 @@ int main(int argc, char* argv[]) {
 		if (temp <= 0) { cout << "After end position cannot be negative or a zero" << endl; return 0; }
 		afterEndPos = temp;
 	}
+	
+	enum OpMode {
+		NORMAL,
+		PARALLEL_TRAJECTORY
+	};
+	OpMode opMode = NORMAL;
+	if ((argc == 5) && stoi(argv[4]) == 1) {
+		opMode = PARALLEL_TRAJECTORY;
+	}
 
 	filesystem::path origFilePath = filePath.generic_string() + ".orig";
 	error_code copy_error;
@@ -49,27 +59,34 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	double itStart = (startPos < 1 ? startPos : ((startPos - START_OFFSET) * STEP));
-	double itEnd = (afterEndPos <= 1 ? afterEndPos : ((afterEndPos - START_OFFSET) * STEP));
+	double interpStart = (startPos < 1 ? startPos : ((startPos - START_OFFSET) * STEP));
+	double interpEnd = (afterEndPos <= 1 ? afterEndPos : ((afterEndPos - START_OFFSET) * STEP));
+	double firstLerpEnd = interpEnd - STEP * 100;
 
 	ifstream inOpenFile(filePath);
 	if (!inOpenFile.good()) {
-		throw runtime_error(".cal file cannot be opened");
+		throw runtime_error("input .cal file cannot be opened");
+	}
+
+	filesystem::path newFilePath = filePath.replace_filename(filePath.stem().generic_string() + "_interpolated" + filePath.extension().generic_string());
+
+	ofstream outOpenFile(newFilePath);
+	if (!outOpenFile.good()) {
+		throw runtime_error("ouput .cal file cannot be opened");
 	}
 
 	tuple<double, double, double> origRGB;
 
 	string tmp;
 	size_t startCursorPos, endCursorPos = 0;
-	stringstream origValues;
 
 	while (getline(inOpenFile, tmp)) {
 		if (tmp.empty() || *tmp.begin() != '0') {
-			origValues << tmp << endl;
+			outOpenFile << tmp << endl;
 			continue;
 		}
 		endCursorPos = tmp.find_first_of(' ');
-		if ((itStart - stod(tmp.substr(0, endCursorPos))) < DELTA) {
+		if ((interpStart - stod(tmp.substr(0, endCursorPos))) < DELTA) {
 			startCursorPos = tmp.find_first_not_of(' ', endCursorPos);
 			endCursorPos = tmp.find_first_of(' ', startCursorPos);
 			get<0>(origRGB) = stod(tmp.substr(startCursorPos, (endCursorPos - startCursorPos)));
@@ -84,31 +101,35 @@ int main(int argc, char* argv[]) {
 			
 			break;
 		}
-		origValues << tmp << endl;
+		outOpenFile << tmp << endl;
 	}
 	inOpenFile.close();
 
-	stringstream lerpValues;
-
-	for (double i = itStart; i < (itEnd - STEP); i += STEP) {
-
-		lerpValues << setprecision(14) << std::left << setfill('0') << setw(16) << i << ' ';
-		lerpValues << setprecision(15);
-		lerpValues << std::left << setfill('0') << setw(17) << lerp(get<0>(origRGB), itEnd, (i - itStart) / (itEnd - itStart)) << ' ';
-		lerpValues << std::left << setfill('0') << setw(17) << lerp(get<1>(origRGB), itEnd, (i - itStart) / (itEnd - itStart)) << ' ';
-		lerpValues << std::left << setfill('0') << setw(17) << lerp(get<2>(origRGB), itEnd, (i - itStart) / (itEnd - itStart));
-		lerpValues << endl;
+	double diff = abs(interpStart - get<0>(origRGB));
+	double parallelValue;
+	if (opMode == PARALLEL_TRAJECTORY) {
+		for (double i = interpStart; i < (firstLerpEnd - STEP); i += STEP) {
+			parallelValue = i + diff;
+			outOpenFile << setprecision(14) << std::left << setfill('0') << setw(16) << i << ' ';
+			outOpenFile << setprecision(15);
+			outOpenFile << std::left << setfill('0') << setw(17) << parallelValue << ' ';
+			outOpenFile << std::left << setfill('0') << setw(17) << parallelValue << ' ';
+			outOpenFile << std::left << setfill('0') << setw(17) << parallelValue;
+			outOpenFile << endl;
+		}
 	}
 
-
-	filesystem::path newFilePath = filePath.replace_filename(filePath.stem().generic_string() + "_interpolated" + filePath.extension().generic_string());
-
-	ofstream outOpenFile(newFilePath);
-	if (!outOpenFile.good()) {
-		throw runtime_error(".cal file cannot be opened");
+	double newInterpStart = (opMode == PARALLEL_TRAJECTORY ? firstLerpEnd : interpStart);
+	double newFirst = (opMode == PARALLEL_TRAJECTORY ? newInterpStart + diff : get<0>(origRGB));
+	for (double i = newInterpStart; i < (interpEnd - STEP); i += STEP) {
+		outOpenFile << setprecision(14) << std::left << setfill('0') << setw(16) << i << ' ';
+		outOpenFile << setprecision(15);
+		outOpenFile << std::left << setfill('0') << setw(17) << lerp(newFirst, interpEnd, (i - newInterpStart) / (interpEnd - newInterpStart)) << ' ';
+		outOpenFile << std::left << setfill('0') << setw(17) << lerp(newFirst, interpEnd, (i - newInterpStart) / (interpEnd - newInterpStart)) << ' ';
+		outOpenFile << std::left << setfill('0') << setw(17) << lerp(newFirst, interpEnd, (i - newInterpStart) / (interpEnd - newInterpStart));
+		outOpenFile << endl;
 	}
 
-	outOpenFile << origValues.rdbuf() << lerpValues.rdbuf();
 	outOpenFile << "1.00000000000000 1.000000000000000 1.000000000000000 1.000000000000000" << endl;
 	outOpenFile << "END_DATA" << endl;
 }
