@@ -140,9 +140,6 @@ int main(int argc, char* argv[]) {
 		outputSS << endl;
 	}
 
-	outputSS << "1.00000000000000 1.000000000000000 1.000000000000000 1.000000000000000" << endl;
-	outputSS << "END_DATA";
-
 
 	filesystem::path newFilePath = filePath.replace_filename(filePath.stem().generic_string() + "_interpolated" + filePath.extension().generic_string());
 
@@ -150,6 +147,19 @@ int main(int argc, char* argv[]) {
 	if (!outOpenFile.good()) {
 		throw runtime_error("ouput .cal file cannot be opened");
 	}
+
+	// use chosen lerp start point to calculate color offsets
+	// calculate max channel
+	int maxChannelOffset = max(max(userR, userB), max(userR, userG));
+	// normalize channel offset values and calculate new values
+	double tmpR = get<0>(origRGB) * ((double)userR / maxChannelOffset);
+	double tmpG = get<1>(origRGB) * ((double)userG / maxChannelOffset);
+	double tmpB = get<2>(origRGB) * ((double)userB / maxChannelOffset);
+	// calculate final "static" offsets
+	double newMaxChannelValue = max(max(tmpR, tmpB), max(tmpR, tmpG));
+	double rOffset = newMaxChannelValue - tmpR;
+	double gOffset = newMaxChannelValue - tmpG;
+	double bOffset = newMaxChannelValue - tmpB;
 
 	double pos;
 	double r, g, b;
@@ -166,21 +176,27 @@ int main(int argc, char* argv[]) {
 
 		startCursorPos = tmp.find_first_not_of(' ', endCursorPos);
 		endCursorPos = tmp.find_first_of(' ', startCursorPos);
-		r = stod(tmp.substr(startCursorPos, (endCursorPos - startCursorPos))) * (double)userR * (isFullRange ? 0.01 : 0.02);
+		//r = stod(tmp.substr(startCursorPos, (endCursorPos - startCursorPos))) * (double)userR * (isFullRange ? 0.01 : 0.02);
+		r = stod(tmp.substr(startCursorPos, (endCursorPos - startCursorPos))) - rOffset;
 
 		startCursorPos = tmp.find_first_not_of(' ', endCursorPos);
 		endCursorPos = tmp.find_first_of(' ', startCursorPos);
-		g = stod(tmp.substr(startCursorPos, (endCursorPos - startCursorPos))) * (double)userG * (isFullRange ? 0.01 : 0.02);
+		//g = stod(tmp.substr(startCursorPos, (endCursorPos - startCursorPos))) * (double)userG * (isFullRange ? 0.01 : 0.02);
+		g = stod(tmp.substr(startCursorPos, (endCursorPos - startCursorPos))) - gOffset;
 
 		startCursorPos = tmp.find_first_not_of(' ', endCursorPos);
 		endCursorPos = tmp.find_first_of(' ', startCursorPos);
-		b = stod(tmp.substr(startCursorPos, (endCursorPos - startCursorPos))) * (double)userB * (isFullRange ? 0.01 : 0.02);
+		//b = stod(tmp.substr(startCursorPos, (endCursorPos - startCursorPos))) * (double)userB * (isFullRange ? 0.01 : 0.02);
+		b = stod(tmp.substr(startCursorPos, (endCursorPos - startCursorPos))) - bOffset;
 
 		outOpenFile << setprecision(14) << std::left << setfill('0') << setw(16) << pos << ' ';
 		outOpenFile << setprecision(15);
-		outOpenFile << std::left << setfill('0') << setw(17) << r << ' ';
-		outOpenFile << std::left << setfill('0') << setw(17) << g << ' ';
-		outOpenFile << std::left << setfill('0') << setw(17) << b;
+		outOpenFile << std::left << setfill('0') << setw(17) << max(0.0, r) << ' ';
+		outOpenFile << std::left << setfill('0') << setw(17) << max(0.0, g) << ' ';
+		outOpenFile << std::left << setfill('0') << setw(17) << max(0.0, b);
 		outOpenFile << endl;
 	}
+
+	outOpenFile << "1.00000000000000 1.000000000000000 1.000000000000000 1.000000000000000" << endl;
+	outOpenFile << "END_DATA";
 }
