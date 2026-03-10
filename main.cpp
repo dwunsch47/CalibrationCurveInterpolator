@@ -12,7 +12,7 @@ const int LAST_LINE = 1037; // 1037 line or 1.0 is always final
 constexpr double STEP = 1.0 / 1023.0;
 const double DELTA = 0.0001;
 const int END_LERP_START = 50;
-constexpr double LAST_STEP = 1.0;
+const double LAST_STEP = 1.0;
 
 int main(int argc, char* argv[]) {
 	if ((argc < 3) || (argc > 8)) {
@@ -33,7 +33,7 @@ int main(int argc, char* argv[]) {
 
 	double startPos = stod(argv[2]);
 	if (string(argv[2]).find('.') != string::npos && (startPos > 1.0)) {
-		startPos = startPos / 256.0;
+		startPos /= 256.0;
 		cout << startPos << endl;
 	}
 	if (startPos < 0) { cout << "Start position cannot be a negative number" << endl; return 0; }
@@ -200,22 +200,5 @@ int main(int argc, char* argv[]) {
 		lut1dOutFile << std::left << setfill('0') << setw(17) << b;
 		lut1dOutFile << endl;
 	}
-
-	ostringstream finalClampedR;
-	finalClampedR << setprecision(15) << std::left << setfill('0') << setw(17) << max(1.0, get<1>(outputValues.back()) - rOffset);
-	ostringstream finalClampedG;
-	finalClampedG << setprecision(15) << std::left << setfill('0') << setw(17) << min(1.0, get<2>(outputValues.back()) - gOffset);
-	ostringstream finalClampedB;
-	finalClampedB << setprecision(15) << std::left << setfill('0') << setw(17) << min(1.0, get<3>(outputValues.back()) - bOffset);
-
-	//lut1dOutFile << (isClamping ? finalClampedR.str() : "1.000000000000000") << ',';
-	//lut1dOutFile << (isClamping ? finalClampedG.str() : "1.000000000000000") << ',';
-	//lut1dOutFile << (isClamping ? finalClampedB.str() : "1.000000000000000");
-
-	//outOpenFile << "1.00000000000000 ";
-	//outOpenFile << (isClamping ? finalClampedR.str() : "1.000000000000000") << ' ';
-	//outOpenFile << (isClamping ? finalClampedG.str() : "1.000000000000000") << ' ';
-	//outOpenFile << (isClamping ? finalClampedB.str() : "1.000000000000000");
-	//outOpenFile << endl;
 	outOpenFile << "END_DATA";
 }
