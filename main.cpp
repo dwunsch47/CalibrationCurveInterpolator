@@ -11,11 +11,10 @@ const int START_OFFSET = 14; // actual numerical data start on line 14
 const int LAST_LINE = 1037; // 1037 line or 1.0 is always final
 constexpr double STEP = 1.0 / 1023.0;
 const double DELTA = 0.0001;
-const int END_LERP_START = 50;
-const double LAST_STEP = 1.0;
+const double LAST_VALUE = 1.0;
 
 int main(int argc, char* argv[]) {
-	if ((argc < 3) || (argc > 8)) {
+	if ((argc < 3) || (argc > 9)) {
 		cout << "Wrong format\n\n";
 		//if (argc == 2 && (argv[1] == "help" || argv[1] == "-help")) {
 			cout << "Use \"./cci.exe \"path to file or filename if file is in current folder\"\n\n"
@@ -32,12 +31,12 @@ int main(int argc, char* argv[]) {
 	if (filePath.extension() != ".cal") { cout << "Only \".cal\" files are supported" << endl; return 0; }
 
 	double startPos = stod(argv[2]);
+	if (startPos < 0) { cout << "Start position cannot be a negative number" << endl; return 0; }
 	if (string(argv[2]).find('.') != string::npos && (startPos > 1.0)) {
-		startPos /= 256.0;
+		startPos /= 255.0;
 		cout << startPos << endl;
 	}
-	if (startPos < 0) { cout << "Start position cannot be a negative number" << endl; return 0; }
-	else if (startPos == 1) { cout << "Start position cannot be \"1\" or \"1.0\"" << endl; return 0; }
+	else if (startPos >= 1.0) { cout << "Start position cannot be \"1\" or \"1.0\" or more" << endl; return 0; }
 
 	double afterEndPos = 1.0;
 	if (argc >= 4) {
@@ -59,11 +58,20 @@ int main(int argc, char* argv[]) {
 		cout << "To 1.0 lerp mode activated" << endl;
 	}
 
+	bool isClamping = false;
+	if ((argc >= 6) && stoi(argv[5]) == 1) {
+		isClamping = true;
+		cout << "Clamping enabled" << endl;
+	}
+	else {
+		cout << "Clamping disabled" << endl;
+	}
+
 	int userR = 100, userG = 100, userB = 100;
-	if (argc >= 8) {
-		userR = stoi(argv[5]);
-		userG = stoi(argv[6]);
-		userB = stoi(argv[7]);
+	if (argc >= 9) {
+		userR = stoi(argv[6]);
+		userG = stoi(argv[7]);
+		userB = stoi(argv[8]);
 		if (userR < 0 || userG < 0 || userB < 0) {
 			cout << "RGB value modifications cannot be less that 0" << endl;
 			return 0;
@@ -79,19 +87,26 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	double interpStart = (startPos < 1 ? startPos : ((startPos - START_OFFSET) * STEP));
-	double interpEnd = (afterEndPos <= 1 ? afterEndPos : ((afterEndPos - START_OFFSET) * STEP));
-	double firstLerpEnd = interpEnd - STEP * END_LERP_START;
+	auto doubleAreEqual = [&](double first, double second) { return abs(first - second) < DELTA; };
 
-	bool isClamping = (interpEnd < 1.0 ? true : false);
+	double interpStart = (startPos < LAST_VALUE ? startPos : ((startPos - START_OFFSET) * STEP));
+	double interpEnd = (afterEndPos <= LAST_VALUE ? afterEndPos : ((afterEndPos - START_OFFSET) * STEP));
+	//double firstLerpEnd = interpEnd - STEP * END_LERP_START;
+
+	cout << "Are " << interpEnd << " and " << LAST_VALUE << " equal? " << boolalpha << doubleAreEqual(interpEnd, LAST_VALUE) << endl;
+
+	//bool isClamping = (interpEnd < LAST_VALUE ? true : false);
 
 	ifstream inOpenFile(filePath);
 	if (!inOpenFile.good()) {
 		throw runtime_error("input .cal file cannot be opened");
 	}
 
+
 	vector<tuple<double, double, double, double>> outputValues;
 	outputValues.reserve((int)(interpStart / STEP));
+
+	tuple<double, double, double> lastOrigRGB = { 0.0, 0.0, 0.0 };
 
 	stringstream outputSS;
 
@@ -116,17 +131,19 @@ int main(int argc, char* argv[]) {
 		startCursorPos = int_tmp.find_first_not_of(' ', endCursorPos);
 		endCursorPos = int_tmp.find_first_of(' ', startCursorPos);
 		double origB = stod(int_tmp.substr(startCursorPos, (endCursorPos - startCursorPos)));
-			
-		if ((interpStart - origPos) < DELTA) {
+
+		if (doubleAreEqual(interpStart, origPos)) {
+			interpStart = origPos;
+			lastOrigRGB = { origR, origG, origB };
 			break;
 		}
 		outputValues.emplace_back(origPos, origR, origG, origB);
 	}
 	inOpenFile.close();
 
-	tuple<double, double, double> lastOrigRGB = { get<1>(outputValues.back()), get<2>(outputValues.back()), get<3>(outputValues.back()) };
+	double diff = abs(interpStart - get<0>(lastOrigRGB));
+	double firstLerpEnd = (doubleAreEqual(interpEnd, LAST_VALUE) ? interpEnd - diff * 2 : interpEnd);
 
-	double diff = abs(interpStart - get<1>(outputValues.back()));
 	if (opMode == PARALLEL_TRAJECTORY) {
 		for (double i = interpStart; i < firstLerpEnd; i += STEP) {
 			double parallelValue = i + diff;
@@ -134,13 +151,21 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	double newInterpStart = (opMode == PARALLEL_TRAJECTORY ? firstLerpEnd : interpStart);
-	double newFirst = (opMode == PARALLEL_TRAJECTORY ? newInterpStart + diff : get<0>(lastOrigRGB));
-	const double divider = interpEnd - newInterpStart;
-	for (double i = newInterpStart; i < LAST_STEP; i += STEP) {
-		double tmp = (isClamping ? newFirst : lerp(newFirst, interpEnd, (i - newInterpStart) / divider));
-		outputValues.emplace_back(i, tmp, tmp, tmp);
+	cout << firstLerpEnd << endl;
+
+	const double newInterpStart = (opMode == PARALLEL_TRAJECTORY ? firstLerpEnd : interpStart);
+	const double newFirst = (opMode == PARALLEL_TRAJECTORY ? newInterpStart + diff : get<0>(lastOrigRGB));
+	const double newInterpEnd = min(1.0 , (interpEnd + (opMode == PARALLEL_TRAJECTORY ? diff : 0)));
+	const double divider = newInterpEnd - newInterpStart;
+	double prevLerpResult; //= newFirst;
+	for (double i = newInterpStart; (i < LAST_VALUE || doubleAreEqual(i, LAST_VALUE)); i += STEP) {
+		double lerpResult = lerp(newFirst, newInterpEnd, (i - newInterpStart) / divider);
+		prevLerpResult = ((isClamping && (i > newInterpEnd)) ? prevLerpResult : lerpResult);
+		double input = ((isClamping && (i > newInterpEnd)) ? prevLerpResult : lerpResult);
+		outputValues.emplace_back(i, input, input, input);
 	}
+
+	cout << newInterpEnd << endl;
 
 	// use chosen lerp start point to calculate color offsets
 	// calculate max channel
