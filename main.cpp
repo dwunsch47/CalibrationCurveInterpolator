@@ -169,13 +169,13 @@ int main(int argc, char* argv[]) {
 
 	// use chosen lerp start point to calculate color offsets
 	// calculate max channel
-	double tpp = max(max(userR, userG), max(userR, userB));
+	double tpp = max(max(userR, userG), userB);
 	// normalize channel offset values and calculate new values
 	double tmpR = get<0>(lastOrigRGB) * ((double)userR / tpp);
 	double tmpG = get<1>(lastOrigRGB) * ((double)userG / tpp);
 	double tmpB = get<2>(lastOrigRGB) * ((double)userB / tpp);
 	// calculate final "static" offsets
-	double modifiedMaxChannel = max(max(tmpR, tmpG), max(tmpR, tmpB));
+	double modifiedMaxChannel = max(max(tmpR, tmpG), tmpB);
 	double rOffset = modifiedMaxChannel - tmpR;
 	double gOffset = modifiedMaxChannel - tmpG;
 	double bOffset = modifiedMaxChannel - tmpB;
