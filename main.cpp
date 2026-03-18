@@ -12,6 +12,7 @@ const int LAST_LINE = 1037; // 1037 line or 1.0 is always final
 constexpr double STEP = 1.0 / 1023.0;
 const double DELTA = 0.0001;
 const double LAST_VALUE = 1.0;
+const int DEFAULT_LUT_SIZE = 1024;
 
 int main(int argc, char* argv[]) {
 	if ((argc < 3) || (argc > 9)) {
@@ -26,6 +27,8 @@ int main(int argc, char* argv[]) {
 		return 0;
 	}
 
+	auto doubleAreEqual = [](double first, double second) { return abs(first - second) < DELTA; };
+
 	filesystem::path filePath = argv[1];
 	if (!filesystem::exists(filePath)) { cout << "File path or filename does NOT exist" << endl; return 0; }
 	if (filePath.extension() != ".cal") { cout << "Only \".cal\" files are supported" << endl; return 0; }
@@ -33,15 +36,19 @@ int main(int argc, char* argv[]) {
 	double startPos = stod(argv[2]);
 	if (startPos < 0) { cout << "Start position cannot be a negative number" << endl; return 0; }
 	if (string(argv[2]).find('.') != string::npos && (startPos > 1.0)) {
-		startPos /= 255.0;
-		cout << startPos << endl;
+		startPos /= 255;
+		//cout << startPos << endl;
 	}
 	else if (startPos >= 1.0) { cout << "Start position cannot be \"1\" or \"1.0\" or more" << endl; return 0; }
 
 	double afterEndPos = 1.0;
 	if (argc >= 4) {
 		double temp = stod(argv[3]);
-		if (temp <= 0) { cout << "After end position cannot be negative or a zero" << endl; return 0; }
+		if (temp < 0 || doubleAreEqual(temp, 0.0)) { cout << "After end position cannot be negative or a zero" << endl; return 0; }
+		if (string(argv[3]).find('.') != string::npos && (temp > 1.0)) {
+			temp /= 255;
+		}
+		if (temp < startPos) { cout << "End pos cannot be smaller that start pos" << endl; return 0; }
 		afterEndPos = temp;
 	}
 	
@@ -52,19 +59,11 @@ int main(int argc, char* argv[]) {
 	OpMode opMode = NORMAL;
 	if ((argc >= 5) && stoi(argv[4]) == 1) {
 		opMode = PARALLEL_TRAJECTORY;
-		cout << "Parallel mode activated" << endl;
-	}
-	else {
-		cout << "To 1.0 lerp mode activated" << endl;
 	}
 
 	bool isClamping = false;
 	if ((argc >= 6) && stoi(argv[5]) == 1) {
 		isClamping = true;
-		cout << "Clamping enabled" << endl;
-	}
-	else {
-		cout << "Clamping disabled" << endl;
 	}
 
 	int userR = 100, userG = 100, userB = 100;
@@ -72,69 +71,55 @@ int main(int argc, char* argv[]) {
 		userR = stoi(argv[6]);
 		userG = stoi(argv[7]);
 		userB = stoi(argv[8]);
-		if (userR < 0 || userG < 0 || userB < 0) {
-			cout << "RGB value modifications cannot be less that 0" << endl;
-			return 0;
-		}
+		if (userR < 0 || userG < 0 || userB < 0) { cout << "RGB value modifications cannot be less that 0" << endl; return 0; }
 	}
 
 	filesystem::path origFilePath = filePath.generic_string() + ".orig";
 	error_code copy_error;
 	if (!filesystem::exists(origFilePath)) {
 		filesystem::copy(filePath, origFilePath, copy_error);
-		if (copy_error) {
-			cout << "Backup creation failed. Error message: " << copy_error.message() << endl; return 0;
-		}
+		if (copy_error) { cout << "Backup creation failed. Error message: " << copy_error.message() << endl; return 0; }
 	}
-
-	auto doubleAreEqual = [&](double first, double second) { return abs(first - second) < DELTA; };
 
 	double interpStart = (startPos < LAST_VALUE ? startPos : ((startPos - START_OFFSET) * STEP));
 	double interpEnd = (afterEndPos <= LAST_VALUE ? afterEndPos : ((afterEndPos - START_OFFSET) * STEP));
-	//double firstLerpEnd = interpEnd - STEP * END_LERP_START;
-
-	cout << "Are " << interpEnd << " and " << LAST_VALUE << " equal? " << boolalpha << doubleAreEqual(interpEnd, LAST_VALUE) << endl;
-
-	//bool isClamping = (interpEnd < LAST_VALUE ? true : false);
 
 	ifstream inOpenFile(filePath);
 	if (!inOpenFile.good()) {
 		throw runtime_error("input .cal file cannot be opened");
 	}
 
-
 	vector<tuple<double, double, double, double>> outputValues;
-	outputValues.reserve((int)(interpStart / STEP));
+	outputValues.reserve(DEFAULT_LUT_SIZE);
 
-	tuple<double, double, double> lastOrigRGB = { 0.0, 0.0, 0.0 };
+	tuple<double, double, double> lastOrigRGB;
 
 	stringstream outputSS;
+	string input_tmp;
 
-	string int_tmp;
-
-	while (getline(inOpenFile, int_tmp)) {
-		if (int_tmp.empty() || *int_tmp.begin() != '0') {
-			outputSS << int_tmp << endl;
+	while (getline(inOpenFile, input_tmp)) {
+		if (input_tmp.empty() || *input_tmp.begin() != '0') {
+			outputSS << input_tmp << endl;
 			continue;
 		}
-		size_t endCursorPos = int_tmp.find_first_of(' ');
-		double origPos = stod(int_tmp.substr(0, endCursorPos));
+		size_t endCursorPos = input_tmp.find_first_of(' ');
+		double origPos = stod(input_tmp.substr(0, endCursorPos));
 
-		size_t startCursorPos = int_tmp.find_first_not_of(' ', endCursorPos);
-		endCursorPos = int_tmp.find_first_of(' ', startCursorPos);
-		double origR = stod(int_tmp.substr(startCursorPos, (endCursorPos - startCursorPos)));
+		size_t startCursorPos = input_tmp.find_first_not_of(' ', endCursorPos);
+		endCursorPos = input_tmp.find_first_of(' ', startCursorPos);
+		double origR = stod(input_tmp.substr(startCursorPos, (endCursorPos - startCursorPos)));
 
-		startCursorPos = int_tmp.find_first_not_of(' ', endCursorPos);
-		endCursorPos = int_tmp.find_first_of(' ', startCursorPos);
-		double origG = stod(int_tmp.substr(startCursorPos, (endCursorPos - startCursorPos)));
+		startCursorPos = input_tmp.find_first_not_of(' ', endCursorPos);
+		endCursorPos = input_tmp.find_first_of(' ', startCursorPos);
+		double origG = stod(input_tmp.substr(startCursorPos, (endCursorPos - startCursorPos)));
 
-		startCursorPos = int_tmp.find_first_not_of(' ', endCursorPos);
-		endCursorPos = int_tmp.find_first_of(' ', startCursorPos);
-		double origB = stod(int_tmp.substr(startCursorPos, (endCursorPos - startCursorPos)));
+		startCursorPos = input_tmp.find_first_not_of(' ', endCursorPos);
+		endCursorPos = input_tmp.find_first_of(' ', startCursorPos);
+		double origB = stod(input_tmp.substr(startCursorPos, (endCursorPos - startCursorPos)));
 
 		if (doubleAreEqual(interpStart, origPos)) {
 			interpStart = origPos;
-			lastOrigRGB = { origR, origG, origB };
+			lastOrigRGB = make_tuple(origR, origG, origB);
 			break;
 		}
 		outputValues.emplace_back(origPos, origR, origG, origB);
@@ -151,21 +136,18 @@ int main(int argc, char* argv[]) {
 		}
 	}
 
-	cout << firstLerpEnd << endl;
 
 	const double newInterpStart = (opMode == PARALLEL_TRAJECTORY ? firstLerpEnd : interpStart);
 	const double newFirst = (opMode == PARALLEL_TRAJECTORY ? newInterpStart + diff : get<0>(lastOrigRGB));
 	const double newInterpEnd = min(1.0 , (interpEnd + (opMode == PARALLEL_TRAJECTORY ? diff : 0)));
 	const double divider = newInterpEnd - newInterpStart;
-	double prevLerpResult; //= newFirst;
+	double prevLerpResult;
 	for (double i = newInterpStart; (i < LAST_VALUE || doubleAreEqual(i, LAST_VALUE)); i += STEP) {
 		double lerpResult = lerp(newFirst, newInterpEnd, (i - newInterpStart) / divider);
 		prevLerpResult = ((isClamping && (i > newInterpEnd)) ? prevLerpResult : lerpResult);
 		double input = ((isClamping && (i > newInterpEnd)) ? prevLerpResult : lerpResult);
 		outputValues.emplace_back(i, input, input, input);
 	}
-
-	cout << newInterpEnd << endl;
 
 	// use chosen lerp start point to calculate color offsets
 	// calculate max channel
@@ -183,9 +165,7 @@ int main(int argc, char* argv[]) {
 	// tries to fix lost brightness due to changing rgb values, thus inherently losing some brightness
 	// mb a bit crude, but better than nothing
 	// ideally it should be based on our perception of light, and should be further researched
-	//const double brightnessOffset = max(max(rOffset, gOffset), bOffset) / 3;
 	const double brightnessOffset = (rOffset + gOffset + bOffset) / 3;
-	//const double brightnessOffset = 0.0;
 
 	filesystem::path outFileName = filePath.replace_filename(filePath.stem().generic_string() + "_interpolated" + filePath.extension().generic_string());
 	ofstream outOpenFile(outFileName);
@@ -207,27 +187,12 @@ int main(int argc, char* argv[]) {
 			outOpenFile << out_tmp << endl;
 	}
 
-	int modStart = 1;
-
-	modStart = static_cast<int>((max(rOffset, max(gOffset, bOffset)) - brightnessOffset) / get<1>(*(outputValues.begin() + 1))) + 1;
-
-	//modStart = static_cast<int>((max(rOffset, max(gOffset, bOffset))) / max(rOffset, max(gOffset, bOffset)) - get<1>(outputValues.front()));
-
-
+	int modStart = (int) ceil((max(rOffset, max(gOffset, bOffset)) - brightnessOffset) / get<1>(*(outputValues.begin() + 1)));
 	int counter = 0;
-
-	cout << "modStart: " << modStart << endl;
-
-	if (modStart <= 0) {
-		modStart = 1;
-		counter = 1;
-	}
 
 	for (const auto& values : outputValues) {
 		double combModifier = (double) counter / modStart;
 		counter += (counter < modStart ? 1 : 0);
-
-		//cout << get<1>(values) << " - " << rOffset * combModifier << " + " << brightnessOffset * combModifier << " = " << get<1>(values) - rOffset * combModifier + brightnessOffset * combModifier << endl;
 
 		double r = min(1.0, max(0.0, get<1>(values) - (rOffset - brightnessOffset) * combModifier));
 		double g = min(1.0, max(0.0, get<2>(values) - (gOffset - brightnessOffset) * combModifier));
