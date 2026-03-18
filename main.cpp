@@ -183,9 +183,9 @@ int main(int argc, char* argv[]) {
 	// tries to fix lost brightness due to changing rgb values, thus inherently losing some brightness
 	// mb a bit crude, but better than nothing
 	// ideally it should be based on our perception of light, and should be further researched
-	//double brightnessOffset = max(max(rOffset, gOffset), max(rOffset, bOffset)) / 3;
-	//const double brightnessOffset = (get<0>(origRGB) + get<1>(origRGB) + get<2>(origRGB)) / 3 - (tmpR + tmpG + tmpB) / 3;
-	const double brightnessOffset = 0.0;
+	//const double brightnessOffset = max(max(rOffset, gOffset), bOffset) / 3;
+	const double brightnessOffset = (rOffset + gOffset + bOffset) / 3;
+	//const double brightnessOffset = 0.0;
 
 	filesystem::path outFileName = filePath.replace_filename(filePath.stem().generic_string() + "_interpolated" + filePath.extension().generic_string());
 	ofstream outOpenFile(outFileName);
@@ -207,10 +207,31 @@ int main(int argc, char* argv[]) {
 			outOpenFile << out_tmp << endl;
 	}
 
+	int modStart = 1;
+
+	modStart = static_cast<int>((max(rOffset, max(gOffset, bOffset)) - brightnessOffset) / get<1>(*(outputValues.begin() + 1))) + 1;
+
+	//modStart = static_cast<int>((max(rOffset, max(gOffset, bOffset))) / max(rOffset, max(gOffset, bOffset)) - get<1>(outputValues.front()));
+
+
+	int counter = 0;
+
+	cout << "modStart: " << modStart << endl;
+
+	if (modStart <= 0) {
+		modStart = 1;
+		counter = 1;
+	}
+
 	for (const auto& values : outputValues) {
-		double r = min(1.0, max(0.0, get<1>(values) - rOffset));
-		double g = min(1.0, max(0.0, get<2>(values) - gOffset));
-		double b = min(1.0, max(0.0, get<3>(values) - bOffset));
+		double combModifier = (double) counter / modStart;
+		counter += (counter < modStart ? 1 : 0);
+
+		//cout << get<1>(values) << " - " << rOffset * combModifier << " + " << brightnessOffset * combModifier << " = " << get<1>(values) - rOffset * combModifier + brightnessOffset * combModifier << endl;
+
+		double r = min(1.0, max(0.0, get<1>(values) - (rOffset - brightnessOffset) * combModifier));
+		double g = min(1.0, max(0.0, get<2>(values) - (gOffset - brightnessOffset) * combModifier));
+		double b = min(1.0, max(0.0, get<3>(values) - (bOffset - brightnessOffset) * combModifier));
 
 		outOpenFile << setprecision(14) << std::left << setfill('0') << setw(16) << get<0>(values) << ' ';
 		outOpenFile << setprecision(15);
